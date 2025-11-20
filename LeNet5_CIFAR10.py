@@ -198,3 +198,146 @@ class MyLeNet_linear(nn.Module):
         x = self.seq_fc(x)
 
         return x
+    
+# conv2 layer 추가
+class MyLeNet_conv(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+
+        # 크기 유지를 위해 kernel_size = 3
+        # ModuleList 활용으로 반복되는 layer 효율적 관리
+        self.add_conv1 = nn.ModuleList(
+            [nn.Conv2d(3, 6, 3, 1, 1)] +
+            [nn.Conv2d(6, 6, 3, 1, 1) for _ in range(2)]
+        )
+
+        self.conv_seq1 = nn.Sequential(
+            nn.Conv2d(in_channels=6, out_channels=6, kernel_size=5, stride=1),
+            nn.BatchNorm2d(num_features=6),
+            nn.AvgPool2d(kernel_size=2, stride=2),
+            nn.ReLU()
+        )
+
+        # add_conv1에서 출력된 (6, 14, 14) image를 받을 수 있는 conv layer 2개 생성
+        # 마지막 layer는 conv_seq2의 입력으로 활용될 수 있게 16 차원으로 변경
+        self.add_conv2 = nn.ModuleList([
+            nn.Conv2d(6, 6, 3, 1, 1),   # (6, 14, 14)
+            nn.Conv2d(6, 16, 3, 1, 1)   # (16, 14, 14)
+        ])
+
+        self.conv_seq2 = nn.Sequential(
+            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=5, stride=1),
+            nn.BatchNorm2d(num_features=16),
+            nn.AvgPool2d(kernel_size=2, stride=2),
+            nn.ReLU()
+        )
+
+        self.fc_seq = nn.Sequential(
+            nn.Linear(in_features=16*5*5, out_features=120),
+            nn.Linear(in_features=120, out_features=84),
+            nn.Linear(in_features=84, out_features=num_classes)
+        )
+    
+    def forward(self, x):
+        # 반복문으로 module 안에 있는 리스트에서 1개씩 추출
+        for module in self.add_conv1:
+            x = module(x)
+        x = self.conv_seq1(x)
+
+        for module in self.add_conv2:
+            x = module(x)
+        x = self.conv_seq2(x)
+
+        x = x.view(x.size(0), -1)
+        x = self.fc_seq(x)
+        return x
+    
+# conv 병합
+class myLeNet5_incep(nn.Module):
+    def __init__(self, num_clasees):
+        super().__init__()
+        self.conv_incep1 = nn.Conv2d(3, 6, 5, 1, 2)
+        self.conv_incep2 = nn.Conv2d(3, 6, 3, 1, 1)
+        self.conv_incep3 = nn.Conv2d(3, 6, 1, 1, 0)
+
+        self.conv_seq1 = nn.Sequential(
+            nn.Conv2d(in_channels=3, out_channels=6, stride=5, kernel_size=1),
+            nn.BatchNorm2d(in_features = 6),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.ReLU()
+        )
+        self.conv_seq2 = nn.Sequential(
+            nn.Conv2d(in_channels=6, out_channels=16, kernel_size=5, stride=1),
+            nn.BatchNorm2d(num_features=16),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.ReLU()
+        )
+
+        self.fc_seq = nn.Sequential(
+            nn.Linear(16*5*5, 120),
+            nn.Linear(120, 84),
+            nn.Linear(84, num_clasees)
+        )
+
+    def forward(self, x):
+        x_1 = self.conv_incep1(x)
+        x_2 = self.conv_incep2(x)
+        x_3 = self.conv_incep3(x)
+        x_cat = torch.cat((x_1, x_2, x_3), dim=1)
+
+        x = self.conv_seq1(x_cat)
+        x = self.conv_seq2(x_cat)
+
+        b = x.shape[0]
+
+        x = x.reshape(b, -1)
+        x = self.fc_seq(x)
+
+        return x
+    
+model = MyLeNet_conv(num_classes).to(device)
+loss = nn.CrossEntropyLoss()
+optim = Adam(model.parameters(), lr=lr)
+
+def eval(model, dataloader):
+    """
+    model 평가 코드
+
+    Args -> 앞서 선언한 모델, 예측 값과 실제 값을 불러오는 dataloader
+    output -> 전체 개수 대비 맞춘 개수
+
+    """
+    correct = 0
+    total = 0
+    for img, trg in dataloader:
+        img.to(device)
+        trg.to(device)
+
+        output = model(img)
+
+        _, pred = torch.max(output, 1)
+
+        correct += (pred == trg).sum().item()
+        total += img.shape[0]
+    return correct/total
+
+step = 0
+for epoch in range(epochs):
+    for i, (image, target) in enumerate(train_dataloader):
+        if step==522:
+            # step에 중단점을 걸기위해 사용
+            print(step)
+        image.to(device)
+        target.to(device)
+
+        output = model(image)
+        val_loss = loss(output, target)
+
+        optim.zero_grad()
+        val_loss.backward()
+        optim.step()
+
+        if i%100==0:
+            print(val_loss.item())
+            print('accuracy:', eval(model, test_dataloader))
+        step += 1
