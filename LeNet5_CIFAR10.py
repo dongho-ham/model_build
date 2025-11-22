@@ -321,12 +321,8 @@ def eval(model, dataloader):
         total += img.shape[0]
     return correct/total
 
-step = 0
 for epoch in range(epochs):
     for i, (image, target) in enumerate(train_dataloader):
-        if step==522:
-            # step에 중단점을 걸기위해 사용
-            print(step)
         image.to(device)
         target.to(device)
 
@@ -340,4 +336,3 @@ for epoch in range(epochs):
         if i%100==0:
             print(val_loss.item())
             print('accuracy:', eval(model, test_dataloader))
-        step += 1
